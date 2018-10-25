@@ -1,0 +1,123 @@
+libname class '....';
+
+****************Code for Part 1******************************;
+
+/*Create copy of your dataset*/
+data vitamin_bd;
+set class.vitamin_bd;
+run;
+
+proc format;
+value c_c 1=Case
+			0=Control;
+
+value exp 1=Used supplements during pregnancy
+          0=Did not use supplements during pregnancy
+;
+run;
+
+/*This code outputs the freq table into a dataset so we can use the values in our calculations. Also provides the uncorrected OR*/
+proc freq data=vitamin_bd order=formatted;
+table supp_use*case_status/relrisk;
+format supp_use exp. case_status c_c.;
+ods output crosstabfreqs=freqs (keep=supp_use case_status frequency where=(case_status ne .)) ; 
+run;
+
+/*This data step prepares for transposing the dataset, that is putting all of the values into 1 row rather than 1 column*/
+data freqs_2;
+set freqs;
+retain count 0;
+count=count+1;
+id=1;
+run;
+
+/*This datastep transposes the data. The result is a dataset with one row and all of the values we need as separate variables*/
+data freqs_3;
+set freqs_2;
+by id;
+retain A B C D Tot_Cases Tot_Controls;
+array vars{6} A B C D Tot_Cases Tot_Controls;
+
+if first.id then do i=1 to 6; vars{i}=.; end;
+
+if count=1 then A=frequency;
+else if count=2 then B=frequency;
+else if count=3 then C=frequency;
+else if count=4 then D=frequency;
+else if count=5 then Tot_cases=frequency;
+else if count=6 then Tot_controls=frequency;
+
+keep id A B C D Tot_cases Tot_controls;
+if last.id then output;
+run;
+
+/*Here we specify the values of sensitivity and specificity we want to use in our correction calculations.
+Using these macro variables allows us to make changes in one place, rather than having to alter the calculation code*/
+
+%let sp=1;
+%let se=0.85;
+%let sp2=0.95;
+%let se2=0.8;
+
+/*Performs the calculations needed to correct the OR for misclassification*/
+data freqs_4;
+set freqs_3;
+
+corr_A=((&sp*A)-((1-&sp)*C))/(&se+&sp-1);
+corr_C=Tot_cases-corr_A;
+
+corr_B=((&sp2*B)-((1-&sp2)*D))/(&se2+&sp2-1);
+corr_D=Tot_controls-corr_B;
+
+corr_OR=(corr_A*corr_D)/(corr_B*corr_C);
+run;
+
+/*Prints the corrected OR*/
+proc print data=freqs_4;
+var corr_OR;
+run;
+
+proc freq data=vitamin_bd order=formatted;
+where age>20;
+table supp_use*case_status/relrisk;
+format supp_use exp. case_status c_c.;
+run;
+
+************PART II************************************;
+
+proc iml;
+/*the point estimator and confidence interval of RR--REPLACE HERE FOR PART II*/
+RR = 2.16;
+RR_Lower = 1.45;
+RR_Upper = 3.23;
+
+/*strenghth of confounding resulting from U*/
+RR_EU = {1.2 1.3 1.5 1.8 2 2.5 3 4 5 6 8 10};
+RR_UD = {1.2 1.3 1.5 1.8 2 2.5 3 4 5 6 8 10};
+highthreshold = ROUND(RR + SQRT(RR*(RR-1)), 0.01);
+rownames_EU = CHAR(RR_EU, NCOL(RR_EU), 1);
+colnames_UD = CHAR(RR_UD, NCOL(RR_UD), 1);
+BiasFactor = J(NCOL(RR_EU), NCOL(RR_UD), 1);
+SPACE = J(NCOL(RR_EU), NCOL(RR_UD), " ");
+LeftP = J(NCOL(RR_EU), NCOL(RR_UD), "(");
+Mid = J(NCOL(RR_EU), NCOL(RR_UD), ",");
+RightP = J(NCOL(RR_EU), NCOL(RR_UD), ")");
+RR_true = BiasFactor;
+RR_true_Lower = BiasFactor;
+RR_true_Upper = BiasFactor;
+RR_true_CI = BiasFactor;
+DO i=1 TO NCOL(RR_EU);
+Do j=1 to NCOL(RR_UD);
+BiasFactor[i, j] = RR_EU[i]*RR_UD[j]/(RR_EU[i] + RR_UD[j] - 1);
+RR_true[i, j] = ROUND(RR/BiasFactor[i, j], 0.01);
+RR_true_Lower[i, j] = ROUND(RR_Lower/BiasFactor[i, j], 0.01);
+RR_true_Upper[i, j] = ROUND(RR_Upper/BiasFactor[i, j], 0.01);
+END;
+END;
+RR_true_CI = CATX(" ", CHAR(RR_true), LeftP, CHAR(RR_true_Lower), Mid, CHAR(RR_true_Upper), RightP);
+print RR_true_CI[colname = colnames_UD
+rowname = rownames_EU
+label = "Bounds on corrected estimates and confidence intervals for unmeasured confounding
+(columns correspond to increasing strength of the risk ratio of U on the outcome;
+rows correspond to increasing strength of risk ratio relating the exposure and U)"];
+run;
