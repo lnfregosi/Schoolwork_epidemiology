@@ -1,0 +1,185 @@
+libname jaswork2 "C:\Users\anbglargeclass036\Downloads";
+
+
+/*EXAMPLE 1: Cumulative Sampling in a Case-Control Study*/
+
+/*Create a temporary copy of the dataset*/
+data bd;
+set jaswork.bd;
+run;
+
+/*Use freq command to obtain odds ratios*/
+proc freq data=bd;
+table case*tob2/measures relrisk;
+run;
+
+/*Use genmod command to obtain odds ratio*/
+proc genmod data=bd;
+class tob2;
+model case=tob2 /link=logit dist=bin;
+estimate "tob_OR" tob2 1 -1/exp;
+run;
+
+/*Use logistic command to obtain odds ratio*/
+proc logistic data=bd;
+class tob2 (ref=last) agegrp;
+model case=tob2 agegrp;
+run;
+
+/*Adjust for confounders to obtain odds ratio*/
+proc genmod data=bd;
+class agegrp tob2;
+model case=tob2 agegrp/link=logit dist=bin;
+estimate "tob_OR" tob2 1 -1/exp;
+run;
+
+/*EXAMPLE 2: Matched One-to-One Case-Control Study*/
+
+/*Enter data manually into SAS*/
+data matchlbwinfants;
+input id status smk parity ppwt gest gain;
+datalines;
+1 1 1 1 40.9 1 6.1
+1 0 0 1 40.9 0 21
+2 1 1 0 43 1 9.2
+2 0 1 1 43 1 10
+3 1 0 0 44.5 1 3.4
+3 0 0 0 44.5 1 3.4
+4 1 0 1 44.5 1 4.4
+4 0 0 1 44.5 0 18.1
+5 1 0 1 44.5 1 6.1
+5 0 0 0 44.5 0 19.3
+6 1 0 0 45.5 0 1
+6 0 1 0 45.5 0 1.5
+7 1 0 0 45.5 0 8.4
+7 0 0 1 45.5 0 8.9
+8 1 1 0 45.5 1 6.5
+8 0 0 0 45.5 1 8.8
+9 1 1 1 46.8 0 6.9
+9 0 1 0 46.8 0 7.7
+10 1 1 0 46.8 0 8.4
+10 0 0 0 46.8 0 9.3
+11 1 1 1 91 1 2.7
+11 0 1 0 91 0 16.2
+12 1 0 0 93.2 1 4.5
+12 0 0 0 93.1 1 25.8
+13 1 1 0 97.7 1 10.6
+13 0 1 0 97.7 0 18.7
+14 1 0 0 105 0 3.6
+14 0 1 1 105 1 10.7
+15 1 1 0 118 1 0
+15 0 1 0 118 0 5.5
+;
+run;
+
+/*Examples of incorrect analysis because not accounting for matching*/
+proc freq data=matchlbwinfants;
+table status*gest/measures;
+run;
+
+proc logistic data=matchlbwinfants;
+model status (event='1')= gest;
+run;
+
+/*Calculate McNemar's test using agree option*/
+proc freq data=matchlbwinfants;
+table status*gest/measures agree;
+run;
+
+/*Use freq command to get odds ratio, accounting for matching*/
+proc freq data=matchlbwinfants;
+table id*status*gest/cmh noprint;
+run;
+
+/*Use proc logistic to account for matching using conditional logistic regression*/
+proc logistic data=matchlbwinfants descending;
+strata id;
+model status= gest;
+run;
+
+/*Use proc logistic to adjust for confounders*/
+proc logistic data=matchlbwinfants;
+strata id;
+model status (event='1')= gest parity;
+run;
+
+/*EXAMPLE 3:  Case-Control Study with Risk Sets*/
+
+data kidney;
+input rs case occ agegrp;
+datalines;
+1	1	1	3
+1	0	1	1
+1	0	0	3
+1	0	0	0
+1	0	0	3
+2	1	1	2
+2	0	0	3
+2	0	0	4
+2	0	1	2
+2	0	1	4
+3	1	0	3
+3	0	1	0
+3	0	0	3
+3	0	0	2
+3	0	0	4
+4	1	1	2
+4	0	0	0
+4	0	0	1
+4	0	1	3
+4	0	1	2
+5	1	0	4
+5	0	0	2
+5	0	0	4
+5	0	0	3
+5	0	0	1
+6	1	0	0
+6	0	1	4
+6	0	1	2
+6	0	0	2
+6	0	0	4
+7	1	1	1
+7	0	0	2
+7	0	0	2
+7	0	1	1
+7	0	1	3
+8	1	0	2
+8	0	1	2
+8	0	0	4
+8	0	0	0
+8	0	0	4
+9	1	1	4
+9	0	0	3
+9	0	1	3
+9	0	1	2
+9	0	1	1
+10	1	0	1
+10	0	0	2
+10	0	0	1
+10	0	0	2
+10	0	0	2
+11	1	0	2
+11	0	1	1
+11	0	0	0
+11	0	0	0
+11	0	1	2
+12	1	1	3
+12	0	0	3
+12	0	0	0
+12	0	1	3
+12	0	1	2
+;
+run;
+
+/*Use proc logistic to account for risk-sets using conditional logistic regression*/
+proc logistic data=kidney;
+strata rs;
+class occ (ref='0') ;
+model case (event='1')=occ ;
+run;
+
+proc logistic data=kidney;
+strata rs;
+class occ (ref='0') agegrp (ref='2');
+model case (event='1')=occ agegrp;
+run;
