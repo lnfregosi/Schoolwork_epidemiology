@@ -1,0 +1,38 @@
+**incremental coding
+If serum selenium > 25th percentile then serumsel_1=1; else 0;
+If serum selenium>50th percentile then serumsel_2=1; else 0;
+If serum selenium>75th percentile then serumsel_3=1; else 0;
+
+
+*Question 8: Next, you decide to code serum selenium as a linear spline. 
+*You decide to place the knots in the same places as Laclaustra et al, the 
+*5th 50th and 95th percentiles. First, find the values of these percentiles. 
+(Then fill those values into the code below and insert that code into your 
+*data step to code the spline:
+
+If lbxsse> (5th percentile) then lbxsse_2=lbxsse-(5th percentile);
+Else if lbxsse ne . then lbxsse_2=0;
+
+If lbxsse> (50th percentile) then lbxsse_3=lbxsse-(50th percentile);
+Else if lbxsse ne . then lbxsse_3=0;
+
+If lbxsse> (95th percentile) then lbxsse_4=lbxsse-(95th percentile);
+Else if lbxsse ne . then lbxsse_4=0;
+
+*Once your new spline variables are created, run the following code replacing 
+*the names of your variables and dataset names:
+
+proc logistic data=lab2_test descending;
+model diab=lbxsse lbxsse_2 lbxsse_3 lbxsse_4;
+output out=logits xbeta=logit;
+run;
+
+data logits_a;
+set logits;
+
+odds=exp(logit);
+run;
+
+proc sgplot data=logits_a;
+scatter x=lbxsse y=odds;
+run;
