@@ -1,0 +1,72 @@
+data bd;
+set jaswork.bd;
+run;
+
+proc format;
+value c_c 1=Case
+			2=Control;
+
+value exp 1=Consumed Tobacco
+          2=Did not consume Tobacco
+;
+run;
+
+/*This code outputs the freq table into a dataset so we can use the values in our calculations. Also provides the uncorrected OR*/
+proc freq data=bd order=formatted;
+table tob2*case/relrisk;
+format tob2 exp. case c_c.;
+ods output crosstabfreqs=freqs (keep=tob2 case frequency where=(case ne .)) ; 
+run;
+
+/*This data step prepares for transposing the dataset, that is putting all of the values into 1 row rather than 1 column*/
+data freqs_2;
+set freqs;
+retain count 0;
+count=count+1;
+id=1;
+run;
+
+/*This datastep transposes the data. The result is a dataset with one row and all of the values we need as separate variables*/
+data freqs_3;
+set freqs_2;
+by id;
+retain A B C D Tot_Cases Tot_Controls;
+array vars{6} A B C D Tot_Cases Tot_Controls;
+
+if first.id then do i=1 to 6; vars{i}=.; end;
+
+if count=1 then A=frequency;
+else if count=2 then B=frequency;
+else if count=3 then C=frequency;
+else if count=4 then D=frequency;
+else if count=5 then Tot_cases=frequency;
+else if count=6 then Tot_controls=frequency;
+
+keep id A B C D Tot_cases Tot_controls;
+if last.id then output;
+run;
+
+/*Here we specify the values of sensitivity and specificity we want to use in our correction calculations.
+Using these macro variables allows us to make changes in one place, rather than having to alter the calculation code*/
+
+%let sp=1;
+%let se=0.85;
+%let sp2=0.95;
+%let se2=0.8;
+
+/*Performs the calculations needed to correct the OR for misclassification*/
+data freqs_4;
+set freqs_3;
+
+corr_A=((&sp*A)-((1-&sp)*C))/(&se+&sp-1);
+corr_C=Tot_cases-corr_A;
+
+corr_B=((&sp2*B)-((1-&sp2)*D))/(&se2+&sp2-1);
+corr_D=Tot_controls-corr_B;
+
+corr_OR=(corr_A*corr_D)/(corr_B*corr_C);
+run;
+
+proc print data=freqs_4;
+var corr_OR;
+run;
