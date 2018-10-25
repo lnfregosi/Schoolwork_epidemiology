@@ -1,0 +1,36 @@
+libname jaswork "C:\Users\anbglargeclass036\Downloads";
+
+proc format;
+value c_cc 1="Case"
+2="Control";
+
+value exp 1="Smoking"
+2="Non-smoking";
+run;
+
+/*Create a 2x2 table using formats to get the proper orientation*/
+proc freq data=jaswork.bd order=formatted;
+table tob2*case/cmh;
+format tob2 exp. case c_cc.;
+run;
+
+/*Proc genmod using reference-cell coding and an estimate statement*/
+proc genmod data=jaswork.bd;
+class tob2 agegrp/param=ref;
+model case=tob2 /link=logit dist=bin;
+estimate "OR" tob2 1/exp;
+run;
+
+/*Adjusting for a second variable; estimate statement stays the same*/
+proc genmod data=jaswork.bd;
+class tob2 agegrp/param=ref;
+model case=tob2 agegrp/link=logit dist=bin;
+estimate "OR" tob2 1/exp;
+run;
+
+/*Example of using default coding and estimate statement*/
+proc genmod data=jaswork.bd;
+class tob2;
+model case=tob2/link=logit dist=bin;
+estimate "OR" tob2 1 -1/exp;
+run;
