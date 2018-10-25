@@ -1,0 +1,168 @@
+/*THIS CODE IS MEANT TO ACCOMPANY THE TEXT CAUSAL INFERENCE BY ROBINS AND HERNAN. YOU CAN ACCESS MORE 
+SAMPLE CODE AND THE FULL TEXT AT https://www.hsph.harvard.edu/miguel-hernan/causal-inference-book/*/
+
+/*******************************************************************
+PROGRAM 15.1
+Estimating the average causal effect within levels of confounders
+under the assumption of effect-measure modification by smoking intensity ONLY
+Data from NHEFS
+********************************************************************/;
+libname causinf "C:\Users\stingj01\Documents\"; /*Insert path where you saved the nhefs dataset*/
+
+/* some preprocessing of the data-need to run this */
+data nhefs;
+    set causinf.nhefs;
+    cens= (wt82 eq .);
+    if education ne .;
+	if sbp in(118,200,95,147,187,103) then sbp=.;
+run;
+
+/* outcome regression on covariates: Looking at association between quitting smoking between baseline and 1982 (qsmk) and weight gained from 1971 to 1982 */
+proc genmod data = nhefs;
+    class exercise active education;
+    model wt82_71 = qsmk sex race age age*age education
+                smokeintensity smokeintensity*smokeintensity smokeyrs smokeyrs*smokeyrs
+                exercise active wt71 wt71*wt71;       
+run;
+quit;
+
+
+/*******************************************************************
+PROGRAM 15.2
+Estimating and plotting the propensity score 
+********************************************************************/;
+
+/*Code to construct the propensity score for the exposure: quitting smoking (qsmk)*/
+proc logistic data= nhefs descending;
+    ods exclude ClassLevelInfo Type3 Association FitStatistics GlobalTests;
+    class exercise active education;
+    model qsmk = sex race age age*age education
+                smokeintensity smokeintensity*smokeintensity smokeyrs smokeyrs*smokeyrs
+                exercise active wt71 wt71*wt71;
+    output out= est_prob p= ps;
+run;
+
+
+/* Code to plot the estimated propensity score */
+data tmp1 tmp2 ;
+	set est_prob (keep = qsmk ps) ;
+	ps = round(ps,0.05);
+	if qsmk = 0 then output tmp1 ;
+	if qsmk = 1 then output tmp2 ;
+run;
+
+proc freq data = tmp1 noprint  ;
+	table ps / out = qsmk0 (keep = ps count ) ;
+run;
+
+proc freq data = tmp2 noprint ;
+	table ps / out = qsmk1 (keep = ps count );
+run;
+
+data tmp3 ; 
+	merge qsmk0 (in = a rename = (count = count0) ) qsmk1  (in = b rename = (count = count1));
+	by ps ;
+	label ps="Estimated Propensity Score"
+    	  count0="No. Subjects"
+    	  count1="No. Subjects" 
+      	;
+	if count0 = . then count0 = 0 ;
+	if count1 = . then count1 = 0 ;
+	count1 = -1 * count1 ;
+	count2 = -1 *count1 ;
+run;
+ 
+proc format;
+   picture positive 
+     low-<0='000,000'
+     0<-high='000,000';
+run; 
+ods graphics / reset border=off width=600px height=400px imagefmt=pdf  ;
+title ;	footnote ;
+
+data sganno;
+	function ="text" ; label ="A=0" ; textcolor ="black" ;  x1 = 95 ; y1 = 97 ; size=15 ; 
+	x1space="wallpercent" ; y1space = "wallpercent" ; output ;
+	function ="text" ; label ="A=1" ; textcolor ="black" ;  x1 = 95 ; y1 = 3  ; size=15 ; 
+	x1space="wallpercent" ; y1space = "wallpercent" ; output ;
+run ;
+ 
+proc sgplot data=tmp3 sganno=sganno noautolegend ;
+    format count0 count1  positive.  ;
+    vbar ps / response=count0   legendlabel=" "   datalabel datalabelattrs=(size=10)   name='a0' nofill ;
+    vbar ps / response=count1   legendlabel=" "   datalabel datalabelattrs=(size=10)   name='a1'   fill fillattrs=(color=gray) ;
+    xaxis labelattrs=(size=15) valueattrs=(size = 10) min = 0 max = 1.0;
+    yaxis labelattrs=(size=15) valueattrs=(size = 10) ;
+run;
+ 
+
+/************************************************************************
+PROGRAM 15.3
+Stratification and outcome regression using deciles of the propensity score 
+Data from NHEFS
+*************************************************************************/;
+
+/* Calculation of deciles */
+proc rank data=est_prob out=est_prob groups=10;
+	var ps;
+	ranks ps_dec;
+proc sort; by ps_dec; run;
+
+proc means data=est_prob;
+	class ps_dec qsmk;
+	var ps;
+run;
+
+/* regression on PS deciles, not allowing for effect modification */
+proc glm data= est_prob;
+	class ps_dec;
+	model wt82_71= qsmk ps_dec /clparm solution;
+run;
+quit;
+
+
+/*PART II: MULTIPLE IMPUTATION*/
+
+/*SECTION 1*/
+data nhefs_mi; /*For purposes of this question, we are restricting dataset so only sbp is missing*/
+set nhefs;
+if nmiss(sex,age,race,qsmk,income,education,ht,wt71, wt82,asthma,bronch,tb,hf,cholesterol)=0;
+run;
+
+proc means data=nhefs_mi n nmiss;
+var sbp;
+run;
+
+/*SECTION 2*/
+/*STEP 1: Impute missing variable and create 5 imputations*/
+proc mi data= NHEFS_mi nimpute=5 out=mi_NHEFS seed=54321;
+var SBP SEX AGE RACE qsmk income education ht wt71 wt82 asthma bronch tb hf cholesterol;
+run;
+
+/*STEP 2: Construct model and regress outcome on exposure and covariates in each of the imputed datsets*/
+TITLE " MULTIPLE IMPUTATION REGRESSION - MVN";
+proc glm data = mi_NHEFS ;
+model wt82=  sbp sex age race income education;
+by _imputation_;
+ods output ParameterEstimates=a_mvn;
+run;
+quit;
+
+/*Combine results across imputations into summary answer*/
+proc mianalyze parms=a_mvn;
+modeleffects intercept sbp sex age race income education;
+run;
+
+/*Compare to complete-case analysis*/
+proc glm data = NHEFS_mi ;
+model wt82=  sbp sex age race income education;
+run;
+
+/*Create plot of blood pressure and weight*/
+proc sgplot data=NHEFS_mi;
+scatter x=wt82 y=sbp;
+run;
+
+
+
+
