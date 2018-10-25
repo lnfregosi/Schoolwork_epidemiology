@@ -1,0 +1,71 @@
+/*Create a temporary copy of the dataset*/
+data framingham;
+set jaswork.framingham;
+run;
+
+/*Obtaining counts of outcomes*/
+proc freq data=framingham;
+table mi_fchd death ;
+run;
+
+/*Constructing a 2x2 table*/
+proc freq data=framingham;
+table diab*mi_fchd;
+run;
+
+/*Comparing person-time in exposed and unexposed*/
+proc univariate data=framingham;
+var timemifc;
+class cursmoke;
+run;
+
+/*Creating a Kaplan-Meier Survival Curve*/
+proc lifetest data=framingham intervals= (0 to 9000 by 1000) plots=(s,ls,lls,h,p);
+time timemifc*mi_fchd(0);
+run;
+
+/*Creating curves for each exposure*/
+proc lifetest data=framingham intervals= (0 to 9000 by 1000) plots=(s,ls,lls,h,p);
+time timemifc*mi_fchd(0);
+strata cursmoke;
+run;
+
+/*Creating curves for exposure-combinations*/
+proc lifetest data=framingham intervals= (0 to 9000 by 1000) plots=(s,ls,lls,h,p);
+time timemifc*mi_fchd(0);
+strata cursmoke diab;
+run;
+
+/*Obtaining hazard ratios and 95%CI*/
+proc phreg data=framingham;
+class diab (ref='0');
+model timemifc*mi_fchd(0)=diab/risklimits;
+run;
+
+proc phreg data=framingham;
+class cursmoke (ref='0');
+model timemifc*mi_fchd(0)=diab cursmoke age bmi totchol totchol*diab/risklimits;
+run;
+
+/*Binomial risk model aka Log-binomial model when have a binary, common outcome*/
+proc genmod data=framingham descending;
+class cursmoke (ref='0') sex/param=ref;
+model diab=cursmoke age sex/dist=binomial link=log;
+estimate 'Beta' cursmoke 1 /exp;
+run;
+
+/*Estimate Risk Ratio using modified Poisson model with robust variance*/
+proc genmod data=framingham descending;
+class cursmoke (ref=first) randid/param=ref;
+model mi_fchd=cursmoke/dist=poisson link=log;
+repeated subject=randid/type=unstr;
+estimate 'Beta' cursmoke 1/exp;
+run;
+
+/*Calculate Odds Ratio for Comparison*/
+proc genmod data=framingham descending;
+class cursmoke (ref=first)/param=ref;
+model mi_fchd=cursmoke/dist=binomial link=logit;
+estimate 'Beta' cursmoke 1 /exp;
+run;
+
